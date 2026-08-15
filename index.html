@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Trip - 行李與購物助手</title>
+    
+    <!-- Firebase SDK (Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+    <!-- LocalForage (IndexedDB) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans TC", sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            font-size: 16px; 
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 9999px;
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen pb-20">
+
+    <header class="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-sm">
+        <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <button id="header-icon-btn" onclick="openIconModal()" class="w-12 h-12 rounded-xl bg-brand-500 text-white flex items-center justify-center shadow-md shadow-brand-500/20 transition hover:bg-brand-600 active:scale-95" title="點擊更換圖示">
+                    <i id="header-icon" data-lucide="luggage" class="w-7 h-7"></i>
+                </button>
+                <div>
+                    <h1 class="font-bold text-xl text-slate-800 leading-tight tracking-wide">Trip</h1>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-2 sm:gap-3">
+                <!-- 狀態連線按鈕 -->
+                <button id="auth-btn" onclick="toggleAuth()" class="text-sm sm:text-base text-rose-500 flex items-center gap-1.5 py-1.5 px-2.5 rounded-lg bg-rose-50 hover:bg-rose-100 transition font-bold shadow-sm">
+                    <i data-lucide="cloud" class="w-4 h-4"></i> <span id="auth-text" class="hidden sm:inline">未連線</span>
+                </button>
+
+                <button onclick="openResetModal()" class="text-sm sm:text-base text-slate-400 hover:text-red-500 flex items-center gap-1.5 py-1.5 px-2.5 rounded-lg hover:bg-slate-100 transition font-medium">
+                    <i data-lucide="rotate-ccw" class="w-4 h-4"></i> 重置
+                </button>
+            </div>
+        </div>
+
+        <div class="max-w-3xl mx-auto px-4 flex border-t border-slate-100 overflow-x-auto hide-scrollbar">
+            <button id="tab-packing-btn" onclick="switchTab('packing')" class="flex-1 py-3.5 px-4 text-sm sm:text-base font-semibold text-brand-600 border-b-2 border-brand-500 flex items-center justify-center gap-1.5 transition-all whitespace-nowrap">
+                <i data-lucide="luggage" class="w-5 h-5"></i> 行李 (<span id="packing-count">0</span>)
+            </button>
+            <button id="tab-shopping-btn" onclick="switchTab('shopping')" class="flex-1 py-3.5 px-4 text-sm sm:text-base font-semibold text-slate-500 hover:text-slate-700 border-b-2 border-transparent flex items-center justify-center gap-1.5 transition-all whitespace-nowrap">
+                <i data-lucide="shopping-bag" class="w-5 h-5"></i> 購物 (<span id="shopping-count">0</span>)
+            </button>
+        </div>
+    </header>
+
+    <main class="max-w-3xl mx-auto px-4 pt-4">
+
+        <!-- 行李頁面 -->
+        <section id="tab-packing" class="space-y-4">
+            <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+                <div class="flex justify-between items-center mb-2 text-base">
+                    <span class="font-semibold text-slate-700 flex items-center gap-1.5">
+                        <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-500"></i> 打包完成度
+                    </span>
+                    <span id="progress-text" class="font-bold text-brand-600 text-lg">0%</span>
+                </div>
+                <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                    <div id="progress-bar" class="bg-brand-500 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 space-y-3">
+                <form onsubmit="handleAddPacking(event)" class="flex flex-col sm:flex-row gap-2">
+                    <div class="flex-1 flex gap-2">
+                        <select id="packing-category" class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            <option value="證件">🪪 證件</option>
+                            <option value="電子">🔌 電子</option>
+                            <option value="衣物">👕 衣物</option>
+                            <option value="藥品">💊 藥品</option>
+                            <option value="其他" selected>📦 其他</option>
+                        </select>
+                        <input type="text" id="packing-input" placeholder="新增要帶的物品..." required class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    </div>
+                    <button type="submit" class="bg-brand-500 hover:bg-brand-600 text-white font-bold px-5 py-2.5 rounded-xl text-base flex items-center justify-center gap-1 shadow-sm active:scale-95 transition">
+                        <i data-lucide="plus" class="w-5 h-5"></i> 新增
+                    </button>
+                </form>
+                <div class="pt-2 border-t border-slate-100">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-medium text-slate-500">快速預設必帶推薦：</span>
+                        <button onclick="loadPresets()" class="text-sm text-brand-600 font-bold hover:underline flex items-center gap-1">
+                            <i data-lucide="sparkles" class="w-4 h-4"></i> 載入熱門範本
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex gap-2 overflow-x-auto hide-scrollbar py-1">
+                <button onclick="setPackingFilter('all')" class="packing-filter-btn px-4 py-2 rounded-xl text-sm font-bold bg-brand-500 text-white shadow-sm" data-filter="all">全部</button>
+                <button onclick="setPackingFilter('pending')" class="packing-filter-btn px-4 py-2 rounded-xl text-sm font-bold bg-white text-slate-600 border border-slate-200" data-filter="pending">未打包</button>
+                <button onclick="setPackingFilter('completed')" class="packing-filter-btn px-4 py-2 rounded-xl text-sm font-bold bg-white text-slate-600 border border-slate-200" data-filter="completed">已完成</button>
+            </div>
+
+            <div id="packing-list" class="space-y-2.5"></div>
+            
+            <div id="packing-empty" class="hidden text-center py-10 bg-white rounded-2xl border border-dashed border-slate-200">
+                <i data-lucide="check-check" class="w-14 h-14 mx-auto text-slate-300 mb-3"></i>
+                <p class="text-base font-bold text-slate-500">沒有符合條件的項目</p>
+                <p class="text-sm text-slate-400 mt-1">點擊上方「載入熱門範本」可快速填入常見出國必帶物品</p>
+            </div>
+        </section>
+
+        <!-- 購物頁面 -->
+        <section id="tab-shopping" class="space-y-4 hidden">
+            <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base">購物清單</h3>
+                    <p class="text-sm text-slate-500">拍照比價不漏買</p>
+                </div>
+                <button onclick="openShoppingModal()" class="bg-brand-500 hover:bg-brand-600 text-white font-bold px-4 py-2.5 rounded-xl text-sm sm:text-base flex items-center gap-1.5 shadow-sm active:scale-95 transition">
+                    <i data-lucide="plus" class="w-5 h-5"></i> 新增商品
+                </button>
+            </div>
+            <div id="shopping-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-4"></div>
+            <div id="shopping-empty" class="hidden text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200">
+                <i data-lucide="shopping-cart" class="w-14 h-14 mx-auto text-slate-300 mb-3"></i>
+                <p class="text-base font-bold text-slate-500">購物清單還是空的</p>
+                <p class="text-sm text-slate-400 mt-1">點擊「新增商品」來加入心儀物品與照片吧！</p>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Modal: Add/Edit Shopping Item -->
+    <div id="shopping-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 opacity-0 pointer-events-none transition-opacity duration-200">
+        <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-6 shadow-xl transform translate-y-full sm:translate-y-0 transition-transform duration-200 space-y-5">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 id="shopping-modal-title" class="font-bold text-slate-800 text-lg flex items-center gap-2">
+                    <i data-lucide="shopping-bag" class="w-6 h-6 text-brand-500"></i> 新增想買商品
+                </h3>
+                <button onclick="closeShoppingModal()" class="text-slate-400 hover:text-slate-600 p-1 bg-slate-100 hover:bg-slate-200 rounded-full transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <form onsubmit="handleSaveShopping(event)" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-1.5">商品名稱 *</label>
+                    <input type="text" id="shop-title" required placeholder="例：合利他命 EX Plus / 保濕面膜" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-brand-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-1.5">備註 / 規格 / 數量 / 價格</label>
+                    <textarea id="shop-note" rows="2" placeholder="例：270錠裝，藥妝店比價，預算約 ¥6000" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-1.5">商品圖片</label>
+                    <div class="relative border-2 border-dashed border-slate-300 hover:border-brand-500 rounded-xl p-4 text-center cursor-pointer transition bg-slate-50">
+                        <input type="file" id="shop-image-input" accept="image/*" onchange="handleImageSelect(event)" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full">
+                        <div id="image-preview-container" class="hidden">
+                            <img id="image-preview" class="max-h-40 mx-auto rounded-lg object-contain mb-2 shadow-sm">
+                            <span class="text-sm text-brand-600 font-bold bg-brand-50 px-3 py-1 rounded-full">點擊更換照片</span>
+                        </div>
+                        <div id="image-upload-prompt" class="py-4 space-y-2">
+                            <i data-lucide="camera" class="w-10 h-10 text-slate-400 mx-auto"></i>
+                            <p class="text-sm text-slate-600 font-bold">上傳或拍下商品照片</p>
+                            <p class="text-xs text-slate-400 font-medium">系統將為您自動壓縮，無痕同步雲端</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="pt-2 flex gap-3">
+                    <button type="button" onclick="closeShoppingModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 text-base font-bold hover:bg-slate-50 transition">取消</button>
+                    <button type="submit" class="flex-1 py-3 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-base font-bold shadow-sm transition">儲存商品</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Edit Packing Item -->
+    <div id="packing-edit-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-200">
+        <div class="bg-white w-full max-w-sm rounded-2xl p-6 shadow-xl transform scale-95 transition-transform duration-200 space-y-5">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
+                    <i data-lucide="edit-2" class="w-5 h-5 text-brand-500"></i> 編輯行李項目
+                </h3>
+                <button onclick="closeEditPackingModal()" class="text-slate-400 hover:text-slate-600 p-1 bg-slate-100 hover:bg-slate-200 rounded-full transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <form onsubmit="handleSaveEditPacking(event)" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-1.5">物品名稱 *</label>
+                    <input type="text" id="edit-packing-input" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-brand-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-1.5">分類</label>
+                    <select id="edit-packing-category" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-brand-500">
+                        <option value="證件">🪪 證件</option>
+                        <option value="電子">🔌 電子</option>
+                        <option value="衣物">👕 衣物</option>
+                        <option value="藥品">💊 藥品</option>
+                        <option value="其他">📦 其他</option>
+                    </select>
+                </div>
+                <div class="pt-2 flex gap-3">
+                    <button type="button" onclick="closeEditPackingModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 text-base font-bold hover:bg-slate-50 transition">取消</button>
+                    <button type="submit" class="flex-1 py-3 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-base font-bold shadow-sm transition">儲存變更</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Reset Confirmation Dialog -->
+    <div id="reset-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-200">
+        <div class="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl space-y-5 text-center">
+            <div class="w-14 h-14 rounded-full bg-rose-100 text-rose-500 flex items-center justify-center mx-auto shadow-sm">
+                <i data-lucide="alert-triangle" class="w-7 h-7"></i>
+            </div>
+            <div>
+                <h3 class="font-bold text-slate-800 text-xl">確定要重置清單嗎？</h3>
+                <p class="text-sm text-slate-500 mt-2 leading-relaxed font-medium">此動作將會清除所有您的打包與購物數據，無法復原。</p>
+            </div>
+            <div class="text-left bg-slate-50 p-3 rounded-xl border border-slate-100">
+                <label class="block text-sm font-bold text-slate-700 mb-1.5 text-center">請輸入 <span class="text-rose-500">0000</span> 以確認清除</label>
+                <input type="text" id="reset-code-input" placeholder="0000" maxlength="4" class="w-full text-center bg-white border border-slate-300 rounded-lg px-4 py-2.5 text-lg font-bold tracking-[0.2em] focus:outline-none focus:ring-2 focus:ring-rose-500 text-slate-800 transition-colors">
+                <p id="reset-error-msg" class="text-rose-500 text-xs mt-1.5 font-bold text-center hidden">驗證碼錯誤，請重新輸入</p>
+            </div>
+            <div class="flex gap-3 pt-2">
+                <button onclick="closeResetModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 text-base font-bold hover:bg-slate-50 transition">取消</button>
+                <button onclick="executeReset()" class="flex-1 py-3 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-base font-bold shadow-sm transition active:scale-95">確認清除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: ImageViewer -->
+    <div id="image-modal" class="fixed inset-0 bg-black/95 backdrop-blur-sm z-50 flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-200" onclick="closeImageModal()">
+        <div class="relative max-w-xl w-full">
+            <button onclick="closeImageModal()" class="absolute -top-12 right-0 text-white/80 hover:text-white p-2 bg-white/10 hover:bg-white/20 rounded-full transition">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
+            <img id="modal-img" class="w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl bg-black/50">
+            <p id="modal-img-title" class="text-center text-white font-bold mt-4 text-base"></p>
+        </div>
+    </div>
+
+    <!-- Modal: Select Header Icon -->
+    <div id="icon-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 opacity-0 pointer-events-none transition-opacity duration-200">
+        <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-6 shadow-xl transform translate-y-full sm:translate-y-0 transition-transform duration-200 space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
+                    <i data-lucide="shapes" class="w-6 h-6 text-brand-500"></i> 選擇圖示
+                </h3>
+                <button onclick="closeIconModal()" class="text-slate-400 hover:text-slate-600 p-1 bg-slate-100 hover:bg-slate-200 rounded-full transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="grid grid-cols-4 gap-3 py-2 max-h-60 overflow-y-auto">
+                <button onclick="setHeaderIcon('luggage')" class="p-3 rounded-xl border border-slate-200 hover:border-brand-500 hover:bg-brand-50 text-slate-600 hover:text-brand-600 flex justify-center items-center transition"><i data-lucide="luggage" class="w-6 h-6"></i></button>
+                <button onclick="setHeaderIcon('plane-takeoff')" class="p-3 rounded-xl border border-slate-200 hover:border-brand-500 hover:bg-brand-50 text-slate-600 hover:text-brand-600 flex justify-center items-center transition"><i data-lucide="plane-takeoff" class="w-6 h-6"></i></button>
+                <button onclick="setHeaderIcon('shopping-bag')" class="p-3 rounded-xl border border-slate-200 hover:border-brand-500 hover:bg-brand-50 text-slate-600 hover:text-brand-600 flex justify-center items-center transition"><i data-lucide="shopping-bag" class="w-6 h-6"></i></button>
+                <button onclick="setHeaderIcon('map')" class="p-3 rounded-xl border border-slate-200 hover:border-brand-500 hover:bg-brand-50 text-slate-600 hover:text-brand-600 flex justify-center items-center transition"><i data-lucide="map" class="w-6 h-6"></i></button>
+                <button onclick="setHeaderIcon('camera')" class="p-3 rounded-xl border border-slate-200 hover:border-brand-500 hover:bg-brand-50 text-slate-600 hover:text-brand-600 flex justify-center items-center transition"><i data-lucide="camera" class="w-6 h-6"></i></button>
+                <button onclick="setHeaderIcon('ticket')" class="p-3 rounded-xl border border-slate-200 hover:border-brand-500 hover:bg-brand-50 text-slate-600 hover:text-brand-600 flex justify-center items-center transition"><i data-lucide="ticket" class="w-6 h-6"></i></button>
+                <button onclick="setHeaderIcon('coffee')" class="p-3 rounded-xl border border-slate-200 hover:border-brand-500 hover:bg-brand-50 text-slate-600 hover:text-brand-600 flex justify-center items-center transition"><i data-lucide="coffee" class="w-6 h-6"></i></button>
+                <button onclick="setHeaderIcon('utensils')" class="p-3 rounded-xl border border-slate-200 hover:border-brand-500 hover:bg-brand-50 text-slate-600 hover:text-brand-600 flex justify-center items-center transition"><i data-lucide="utensils" class="w-6 h-6"></i></button>
+                <button onclick="setHeaderIcon('tent')" class="p-3 rounded-xl border border-slate-200 hover:border-brand-500 hover:bg-brand-50 text-slate-600 hover:text-brand-600 flex justify-center items-center transition"><i data-lucide="tent" class="w-6 h-6"></i></button>
+                <button onclick="setHeaderIcon('sun')" class="p-3 rounded-xl border border-slate-200 hover:border-brand-500 hover:bg-brand-50 text-slate-600 hover:text-brand-600 flex justify-center items-center transition"><i data-lucide="sun" class="w-6 h-6"></i></button>
+                <button onclick="setHeaderIcon('train')" class="p-3 rounded-xl border border-slate-200 hover:border-brand-500 hover:bg-brand-50 text-slate-600 hover:text-brand-600 flex justify-center items-center transition"><i data-lucide="train" class="w-6 h-6"></i></button>
+                <button onclick="setHeaderIcon('ship')" class="p-3 rounded-xl border border-slate-200 hover:border-brand-500 hover:bg-brand-50 text-slate-600 hover:text-brand-600 flex justify-center items-center transition"><i data-lucide="ship" class="w-6 h-6"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-5 py-3 rounded-full text-sm font-bold shadow-xl z-50 opacity-0 pointer-events-none transition-all duration-300 flex items-center gap-2">
+        <i data-lucide="check-circle" class="w-5 h-5 text-emerald-400"></i>
+        <span id="toast-msg">操作成功</span>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'travel_assistant_data_v6';
+        
+        // Removed expenses and coupons from default state
+        let appData = { packing: [], shopping: [] }; 
+        let currentFilter = 'all';
+        let tempBase64Image = '';
+        let editingShoppingId = null;
+        let editingPackingId = null;
+        let currentHeaderIcon = 'luggage'; // Default icon
+
+        // 🟢 Firebase 雲端設定區塊
+        const firebaseConfig = {
+            apiKey: "AIzaSyC9hGn1qoXoCYFfbsb5skKufAXDwFA5YY4",
+            authDomain: "tokyo-72cf6.firebaseapp.com",
+            projectId: "tokyo-72cf6",
+            messagingSenderId: "667762837986",
+            appId: "1:667762837986:web:f9aeeaedfeb591b74191bb"
+        };
+
+        let isFirebaseReady = Object.keys(firebaseConfig).length > 0;
+        let currentUser = null;
+
+        if (isFirebaseReady) {
+            firebase.initializeApp(firebaseConfig);
+            
+            firebase.auth().onAuthStateChanged((user) => {
+                currentUser = user;
+                const authText = document.getElementById('auth-text');
+                const authBtn = document.getElementById('auth-btn');
+                const authIcon = authBtn.querySelector('i');
+                
+                if (user) {
+                    if (authText) authText.textContent = '已連線雲端';
+                    if (authBtn) {
+                        authBtn.classList.remove('text-rose-500', 'bg-rose-50', 'hover:bg-rose-100');
+                        authBtn.classList.add('text-emerald-600', 'bg-emerald-50', 'hover:bg-emerald-100');
+                    }
+                    if (authIcon) authIcon.setAttribute('data-lucide', 'cloud-check');
+                    safeCreateIcons();
+                    
+                    loadDataFromCloud();
+                } else {
+                    if (authText) authText.textContent = '未連線';
+                    if (authBtn) {
+                        authBtn.classList.remove('text-emerald-600', 'bg-emerald-50', 'hover:bg-emerald-100');
+                        authBtn.classList.add('text-rose-500', 'bg-rose-50', 'hover:bg-rose-100');
+                    }
+                    if (authIcon) authIcon.setAttribute('data-lucide', 'cloud-off');
+                    safeCreateIcons();
+                    loadData();
+                }
+            });
+        }
+
+        function toggleAuth() {
+            if (!isFirebaseReady) return showToast('尚未填寫 Firebase Config');
+            if (window.location.protocol === 'blob:') {
+                return alert('⚠️ 預覽環境提示\n\n目前在線上預覽環境，Google 登入視窗會被瀏覽器安全政策擋住。\n\n只要將這份檔案存成 HTML，用一般的瀏覽器或上傳到 GitHub Pages 開啟即可完美登入！');
+            }
+
+            if (currentUser) {
+                firebase.auth().signOut().then(() => showToast('已登出並切換為本機模式'));
+            } else {
+                const provider = new firebase.auth.GoogleAuthProvider();
+                firebase.auth().signInWithPopup(provider).catch(e => {
+                    console.error('Login failed', e);
+                    if(e.code !== 'auth/popup-closed-by-user') {
+                        showToast('登入失敗，請確認網域授權');
+                    }
+                });
+            }
+        }
+
+        // 🌟 雲端讀取：文字與圖片分開讀取，打破 1MB 限制
+        async function loadDataFromCloud() {
+            if (!isFirebaseReady || !currentUser) return;
+            
+            try {
+                const userRef = firebase.firestore().collection('users').doc(currentUser.uid);
+                const doc = await userRef.get();
+                
+                if (doc.exists) {
+                    const cloudData = doc.data();
+                    
+                    // 從雲端子集合 (images) 抓取圖片小卡
+                    const imagesSnapshot = await userRef.collection('images').get();
+                    const imageMap = {};
+                    imagesSnapshot.forEach(d => {
+                        imageMap[d.id] = d.data().image;
+                    });
+
+                    // 拼回購物清單
+                    const loadedShopping = cloudData.shopping || [];
+                    loadedShopping.forEach(item => {
+                        if (item.image === 'has_image' && imageMap[item.id]) {
+                            item.image = imageMap[item.id];
+                        }
+                    });
+
+                    appData = {
+                        packing: cloudData.packing || [],
+                        shopping: loadedShopping
+                    };
+                    
+                    if (cloudData.headerIcon) {
+                        currentHeaderIcon = cloudData.headerIcon;
+                        updateHeaderIconDisplay();
+                    }
+
+                    await localforage.setItem(STORAGE_KEY, appData);
+                    renderAll();
+                    showToast('已成功載入專屬雲端紀錄');
+                } else {
+                    await saveData(); 
+                }
+            } catch (e) {
+                console.error("讀取雲端資料失敗:", e);
+                showToast('讀取雲端失敗：' + (e.message || '請確認權限規則'));
+            }
+        }
+
+        const DEFAULT_PRESETS = [
+            { text: '護照 (效期6個月以上)', category: '證件' },
+            { text: '身分證 / 護照影本', category: '證件' },
+            { text: '外幣現金 & 信用卡', category: '證件' },
+            { text: '手機與充電線', category: '電子' },
+            { text: '行動電源 (需隨身攜帶)', category: '電子' },
+            { text: '網卡 / eSIM 兌換碼', category: '電子' },
+            { text: '個人換洗衣物 / 內著', category: '衣物' },
+            { text: '舒適走路鞋', category: '衣物' },
+            { text: '個人常用藥品 / 腸胃藥', category: '藥品' },
+            { text: '口罩 / 隨身面紙濕紙巾', category: '藥品' },
+            { text: '牙刷牙膏 / 保養品', category: '其他' },
+        ];
+
+        function safeCreateIcons() {
+            if (typeof lucide !== 'undefined' && lucide.createIcons) {
+                lucide.createIcons();
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadData();
+            safeCreateIcons();
+            renderAll();
+        });
+
+        async function loadData() {
+            try {
+                const stored = await localforage.getItem(STORAGE_KEY);
+                if (stored) {
+                    appData = { 
+                        packing: stored.packing || [], 
+                        shopping: stored.shopping || []
+                    };
+                    if (stored.headerIcon) {
+                        currentHeaderIcon = stored.headerIcon;
+                        updateHeaderIconDisplay();
+                    }
+                } else {
+                    appData.packing = DEFAULT_PRESETS.slice(0, 6).map((item, idx) => ({
+                        id: 'p_' + Date.now() + '_' + idx, text: item.text, category: item.category, completed: false
+                    }));
+                    await localforage.setItem(STORAGE_KEY, appData);
+                }
+            } catch(e) {
+                console.error("讀取本地資料失敗", e);
+            }
+        }
+
+        // 🌟 核心儲存功能
+        async function saveData() {
+            renderAll(); 
+            try {
+                const dataToStore = { ...appData, headerIcon: currentHeaderIcon };
+                await localforage.setItem(STORAGE_KEY, dataToStore);
+                
+                if (isFirebaseReady && currentUser) {
+                    const cloudData = {
+                        packing: appData.packing,
+                        shopping: appData.shopping.map(item => ({...item})),
+                        headerIcon: currentHeaderIcon
+                    };
+
+                    const imagesToSave = [];
+                    // 抽離購物圖片
+                    cloudData.shopping.forEach(item => {
+                        if (item.image && item.image.startsWith('data:image')) {
+                            imagesToSave.push({ id: item.id, image: item.image });
+                            item.image = 'has_image'; 
+                        }
+                    });
+
+                    const userRef = firebase.firestore().collection('users').doc(currentUser.uid);
+                    await userRef.set(cloudData); // 存主檔
+
+                    // 存圖片小卡
+                    if (imagesToSave.length > 0) {
+                        const batch = firebase.firestore().batch();
+                        imagesToSave.forEach(img => {
+                            const imgRef = userRef.collection('images').doc(img.id);
+                            batch.set(imgRef, { image: img.image });
+                        });
+                        await batch.commit();
+                    }
+                }
+            } catch (e) {
+                console.error("儲存失敗", e);
+            }
+        }
+
+        function renderAll() {
+            renderPacking(); renderShopping(); updateCounts();
+        }
+
+        function switchTab(tab) {
+            const tabs = ['packing', 'shopping'];
+            tabs.forEach(t => {
+                const btn = document.getElementById(`tab-${t}-btn`);
+                const page = document.getElementById(`tab-${t}`);
+                if (btn && page) {
+                    if (t === tab) {
+                        page.classList.remove('hidden');
+                        btn.className = 'flex-1 py-3.5 px-4 text-sm sm:text-base font-bold text-brand-600 border-b-2 border-brand-500 flex items-center justify-center gap-1.5 transition-all whitespace-nowrap';
+                    } else {
+                        page.classList.add('hidden');
+                        btn.className = 'flex-1 py-3.5 px-4 text-sm sm:text-base font-bold text-slate-500 hover:text-slate-700 border-b-2 border-transparent flex items-center justify-center gap-1.5 transition-all whitespace-nowrap';
+                    }
+                }
+            });
+        }
+
+        function updateCounts() {
+            const packingEl = document.getElementById('packing-count');
+            const shoppingEl = document.getElementById('shopping-count');
+            if (packingEl) packingEl.textContent = appData.packing.length;
+            if (shoppingEl) shoppingEl.textContent = appData.shopping.length;
+        }
+
+        // --- 行李系統 ---
+        function handleAddPacking(e) {
+            e.preventDefault();
+            const input = document.getElementById('packing-input');
+            const categorySelect = document.getElementById('packing-category');
+            const text = input.value.trim();
+            if (!text) return;
+
+            appData.packing.unshift({ id: 'p_' + Date.now(), text: text, category: categorySelect.value, completed: false });
+            input.value = '';
+            saveData();
+            showToast('已新增打包項目');
+        }
+
+        function togglePackingItem(id) {
+            const item = appData.packing.find(i => i.id === id);
+            if (item) { item.completed = !item.completed; saveData(); }
+        }
+
+        function deletePackingItem(id) {
+            appData.packing = appData.packing.filter(i => i.id !== id); saveData(); showToast('已刪除項目');
+        }
+
+        function openEditPackingModal(id) {
+            const item = appData.packing.find(i => i.id === id);
+            if(!item) return;
+            
+            editingPackingId = id;
+            document.getElementById('edit-packing-input').value = item.text;
+            document.getElementById('edit-packing-category').value = item.category;
+            
+            const modal = document.getElementById('packing-edit-modal');
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.children[0].classList.remove('scale-95');
+            modal.children[0].classList.add('scale-100');
+        }
+
+        function closeEditPackingModal() {
+            const modal = document.getElementById('packing-edit-modal');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+            modal.children[0].classList.remove('scale-100');
+            modal.children[0].classList.add('scale-95');
+            editingPackingId = null;
+        }
+
+        function handleSaveEditPacking(e) {
+            e.preventDefault();
+            if(!editingPackingId) return;
+
+            const item = appData.packing.find(i => i.id === editingPackingId);
+            if(item) {
+                item.text = document.getElementById('edit-packing-input').value.trim();
+                item.category = document.getElementById('edit-packing-category').value;
+                saveData();
+                showToast('已更新行李項目');
+            }
+            closeEditPackingModal();
+        }
+
+        function setPackingFilter(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.packing-filter-btn').forEach(btn => {
+                btn.className = btn.dataset.filter === filter 
+                    ? 'packing-filter-btn px-4 py-2 rounded-xl text-sm font-bold bg-brand-500 text-white shadow-sm'
+                    : 'packing-filter-btn px-4 py-2 rounded-xl text-sm font-bold bg-white text-slate-600 border border-slate-200';
+            });
+            renderPacking();
+        }
+
+        function loadPresets() {
+            let addedCount = 0;
+            DEFAULT_PRESETS.forEach((preset, idx) => {
+                if (!appData.packing.some(item => item.text === preset.text)) {
+                    appData.packing.push({ id: 'p_preset_' + Date.now() + '_' + idx, text: preset.text, category: preset.category, completed: false });
+                    addedCount++;
+                }
+            });
+            if (addedCount > 0) { saveData(); showToast(`已成功匯入 ${addedCount} 個必帶項目`); } 
+            else showToast('預設項目皆已在清單中');
+        }
+
+        function renderPacking() {
+            const listEl = document.getElementById('packing-list');
+            const emptyEl = document.getElementById('packing-empty');
+            if (!listEl) return;
+            
+            const total = appData.packing.length;
+            const completedCount = appData.packing.filter(i => i.completed).length;
+            const percentage = total === 0 ? 0 : Math.round((completedCount / total) * 100);
+            
+            document.getElementById('progress-bar').style.width = percentage + '%';
+            document.getElementById('progress-text').textContent = percentage + '%';
+
+            let filtered = appData.packing;
+            if (currentFilter === 'pending') filtered = appData.packing.filter(i => !i.completed);
+            if (currentFilter === 'completed') filtered = appData.packing.filter(i => i.completed);
+
+            if (filtered.length === 0) {
+                listEl.innerHTML = '';
+                emptyEl.classList.remove('hidden');
+                return;
+            } else {
+                emptyEl.classList.add('hidden');
+            }
+
+            const categoryBadges = { 
+                '證件': 'bg-amber-100 text-amber-700', 
+                '電子': 'bg-blue-100 text-blue-700', 
+                '衣物': 'bg-purple-100 text-purple-700', 
+                '藥品': 'bg-rose-100 text-rose-700', 
+                '其他': 'bg-slate-100 text-slate-600' 
+            };
+
+            const grouped = filtered.reduce((acc, item) => {
+                if (!acc[item.category]) acc[item.category] = [];
+                acc[item.category].push(item);
+                return acc;
+            }, {});
+
+            const categoryOrder = ['證件', '電子', '衣物', '藥品', '其他'];
+            
+            Object.keys(grouped).forEach(cat => {
+                if (!categoryOrder.includes(cat)) categoryOrder.push(cat);
+            });
+
+            let htmlString = '';
+            
+            categoryOrder.forEach(cat => {
+                if (grouped[cat] && grouped[cat].length > 0) {
+                    htmlString += `
+                        <div class="flex items-center gap-3 mt-4 mb-2 first:mt-1">
+                            <span class="text-sm px-2.5 py-1 rounded-md font-bold shrink-0 ${categoryBadges[cat] || categoryBadges['其他']}">${cat}</span>
+                            <div class="h-px bg-slate-200 flex-1 rounded-full"></div>
+                        </div>
+                        <div class="space-y-2.5">
+                    `;
+                    
+                    htmlString += grouped[cat].map(item => `
+                        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 group transition hover:shadow-md ${item.completed ? 'bg-slate-50/70 border-slate-200/80 opacity-80' : ''}">
+                            <div class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer" onclick="togglePackingItem('${item.id}')">
+                                <div class="w-6 h-6 rounded-lg border-2 ${item.completed ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 bg-white'} flex items-center justify-center transition shrink-0">
+                                    ${item.completed ? '<i data-lucide="check" class="w-4 h-4 text-white font-bold"></i>' : ''}
+                                </div>
+                                <span class="text-base text-slate-800 truncate ${item.completed ? 'line-through text-slate-500' : 'font-bold'}">${escapeHtml(item.text)}</span>
+                            </div>
+                            <div class="flex items-center gap-1 shrink-0">
+                                <button onclick="openEditPackingModal('${item.id}')" class="text-slate-300 hover:text-brand-500 hover:bg-brand-50 p-2 rounded-lg transition">
+                                    <i data-lucide="edit-2" class="w-5 h-5"></i>
+                                </button>
+                                <button onclick="deletePackingItem('${item.id}')" class="text-slate-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition">
+                                    <i data-lucide="trash-2" class="w-5 h-5"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `).join('');
+                    
+                    htmlString += `</div>`; 
+                }
+            });
+
+            listEl.innerHTML = htmlString;
+            safeCreateIcons();
+        }
+
+        // --- 購物系統 ---
+        function openShoppingModal(id = null) {
+            editingShoppingId = id;
+            const modal = document.getElementById('shopping-modal');
+            const titleEl = document.getElementById('shopping-modal-title');
+            const promptEl = document.getElementById('image-upload-prompt');
+            const previewContainer = document.getElementById('image-preview-container');
+            const previewImg = document.getElementById('image-preview');
+
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.children[0].classList.remove('translate-y-full');
+
+            if (id) {
+                const item = appData.shopping.find(i => i.id === id);
+                titleEl.innerHTML = '<i data-lucide="edit-2" class="w-6 h-6 text-brand-500"></i> 編輯商品';
+                document.getElementById('shop-title').value = item.title;
+                document.getElementById('shop-note').value = item.note || '';
+                
+                if (item.image && item.image !== 'has_image') {
+                    tempBase64Image = item.image;
+                    previewImg.src = tempBase64Image;
+                    previewContainer.classList.remove('hidden');
+                    promptEl.classList.add('hidden');
+                } else {
+                    tempBase64Image = '';
+                    previewContainer.classList.add('hidden');
+                    promptEl.classList.remove('hidden');
+                }
+            } else {
+                titleEl.innerHTML = '<i data-lucide="shopping-bag" class="w-6 h-6 text-brand-500"></i> 新增想買商品';
+                document.getElementById('shop-title').value = '';
+                document.getElementById('shop-note').value = '';
+                document.getElementById('shop-image-input').value = '';
+                tempBase64Image = '';
+                previewContainer.classList.add('hidden');
+                promptEl.classList.remove('hidden');
+            }
+            safeCreateIcons();
+        }
+
+        function closeShoppingModal() {
+            document.getElementById('shopping-modal').classList.add('opacity-0', 'pointer-events-none');
+            document.getElementById('shopping-modal').children[0].classList.add('translate-y-full');
+            editingShoppingId = null;
+        }
+
+        function handleImageSelect(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    let width = img.width, height = img.height;
+                    const maxDim = 400; 
+                    if (width > height && width > maxDim) { height *= maxDim / width; width = maxDim; } 
+                    else if (height > maxDim) { width *= maxDim / height; height = maxDim; }
+                    canvas.width = width; canvas.height = height;
+                    canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+                    
+                    tempBase64Image = canvas.toDataURL('image/jpeg', 0.6); 
+                    
+                    document.getElementById('image-preview').src = tempBase64Image;
+                    document.getElementById('image-preview-container').classList.remove('hidden');
+                    document.getElementById('image-upload-prompt').classList.add('hidden');
+                };
+                img.src = evt.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function handleSaveShopping(e) {
+            e.preventDefault();
+            const titleInput = document.getElementById('shop-title');
+            const noteInput = document.getElementById('shop-note');
+            const title = titleInput.value.trim();
+            if (!title) return;
+
+            if (editingShoppingId) {
+                const item = appData.shopping.find(i => i.id === editingShoppingId);
+                if (item) {
+                    item.title = title;
+                    item.note = noteInput.value.trim();
+                    // Update image if a new one was selected, or if user clears it (not currently possible in this UI, but safe assignment)
+                    if (tempBase64Image !== undefined) {
+                        item.image = tempBase64Image;
+                    }
+                    showToast('已更新商品');
+                }
+            } else {
+                appData.shopping.unshift({ 
+                    id: 's_' + Date.now(), 
+                    title: title, 
+                    note: noteInput.value.trim(), 
+                    image: tempBase64Image, 
+                    purchased: false 
+                });
+                showToast('已新增商品');
+            }
+            
+            closeShoppingModal(); 
+            saveData(); 
+        }
+
+        function toggleShoppingPurchased(id) {
+            const item = appData.shopping.find(i => i.id === id);
+            if (item) { item.purchased = !item.purchased; saveData(); }
+        }
+
+        async function deleteShoppingItem(id) {
+            appData.shopping = appData.shopping.filter(i => i.id !== id); 
+            await saveData(); 
+            if (isFirebaseReady && currentUser) {
+                firebase.firestore().collection('users').doc(currentUser.uid).collection('images').doc(id).delete().catch(e => console.log(e));
+            }
+            showToast('已刪除商品');
+        }
+
+        function renderShopping() {
+            const gridEl = document.getElementById('shopping-grid');
+            const emptyEl = document.getElementById('shopping-empty');
+            if (!gridEl) return;
+
+            if (appData.shopping.length === 0) { gridEl.innerHTML = ''; emptyEl.classList.remove('hidden'); return; } 
+            else emptyEl.classList.add('hidden');
+
+            gridEl.innerHTML = appData.shopping.map(item => `
+                <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm flex flex-col justify-between hover:shadow-md transition ${item.purchased ? 'opacity-60 bg-slate-50' : ''}">
+                    <div>
+                        <div class="relative w-full aspect-square bg-slate-100 overflow-hidden group">
+                            ${item.image && item.image !== 'has_image' ? `<img src="${item.image}" alt="${escapeHtml(item.title)}" class="w-full h-full object-cover cursor-pointer hover:scale-105 transition duration-300" onclick="viewImage('${item.image}', '${escapeHtml(item.title)}')">` : `<div class="w-full h-full flex flex-col items-center justify-center text-slate-300"><i data-lucide="image-off" class="w-10 h-10 mb-2"></i><span class="text-xs font-bold">無圖片</span></div>`}
+                            ${item.purchased ? `<div class="absolute top-2 left-2 bg-emerald-500 text-white text-xs font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1"><i data-lucide="check" class="w-3 h-3"></i> 已購買</div>` : ''}
+                        </div>
+                        <div class="p-3.5">
+                            <h4 class="font-bold text-slate-800 text-base leading-snug line-clamp-2 ${item.purchased ? 'line-through text-slate-500' : ''}">${escapeHtml(item.title)}</h4>
+                            ${item.note ? `<p class="text-sm text-slate-500 mt-1.5 line-clamp-3 whitespace-pre-line font-medium">${escapeHtml(item.note)}</p>` : ''}
+                        </div>
+                    </div>
+                    <div class="p-2.5 border-t border-slate-100 flex flex-col gap-2 bg-slate-50/50">
+                        <button onclick="toggleShoppingPurchased('${item.id}')" class="w-full text-sm px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 justify-center ${item.purchased ? 'bg-slate-200 text-slate-600 hover:bg-slate-300' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'} transition">
+                            <i data-lucide="${item.purchased ? 'rotate-ccw' : 'check'}" class="w-4 h-4"></i>${item.purchased ? '取消標記' : '標記已買'}
+                        </button>
+                        <div class="flex items-center gap-2 justify-end mt-1">
+                            <button onclick="openShoppingModal('${item.id}')" class="text-slate-400 hover:text-brand-500 hover:bg-brand-50 p-1.5 rounded-xl transition flex-1 flex justify-center items-center">
+                                <i data-lucide="edit-2" class="w-4 h-4"></i>
+                            </button>
+                            <button onclick="deleteShoppingItem('${item.id}')" class="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-xl transition flex-1 flex justify-center items-center">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+            safeCreateIcons();
+        }
+
+        // --- 全域工具 ---
+        function openResetModal() {
+            const input = document.getElementById('reset-code-input');
+            if (input) { input.value = ''; input.classList.remove('border-rose-500', 'ring-rose-500'); }
+            document.getElementById('reset-error-msg').classList.add('hidden');
+            document.getElementById('reset-modal').classList.remove('opacity-0', 'pointer-events-none');
+        }
+
+        function closeResetModal() { document.getElementById('reset-modal').classList.add('opacity-0', 'pointer-events-none'); }
+
+        function executeReset() {
+            const input = document.getElementById('reset-code-input');
+            if (input && input.value === '0000') {
+                appData = { packing: [], shopping: [] };
+                currentHeaderIcon = 'luggage';
+                updateHeaderIconDisplay();
+                saveData(); closeResetModal(); showToast('已成功重置所有清單資料');
+            } else {
+                document.getElementById('reset-error-msg').classList.remove('hidden');
+                input.classList.add('border-rose-500', 'ring-rose-500');
+                input.focus();
+                setTimeout(() => input.classList.remove('border-rose-500', 'ring-rose-500'), 2000);
+            }
+        }
+
+        function openIconModal() {
+            const modal = document.getElementById('icon-modal');
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.children[0].classList.remove('translate-y-full');
+        }
+
+        function closeIconModal() {
+            const modal = document.getElementById('icon-modal');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+            modal.children[0].classList.add('translate-y-full');
+        }
+
+        function setHeaderIcon(iconName) {
+            currentHeaderIcon = iconName;
+            updateHeaderIconDisplay();
+            closeIconModal();
+            saveData();
+            showToast('已更新圖示');
+        }
+
+        function updateHeaderIconDisplay() {
+            const iconEl = document.getElementById('header-icon');
+            if (iconEl) {
+                iconEl.setAttribute('data-lucide', currentHeaderIcon);
+                safeCreateIcons();
+            }
+        }
+
+        function viewImage(src, title) {
+            document.getElementById('modal-img').src = src; 
+            document.getElementById('modal-img-title').textContent = title;
+            document.getElementById('image-modal').classList.remove('opacity-0', 'pointer-events-none');
+        }
+        
+        function closeImageModal() { document.getElementById('image-modal').classList.add('opacity-0', 'pointer-events-none'); }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-msg').textContent = msg;
+            toast.classList.remove('opacity-0', 'pointer-events-none'); toast.classList.add('translate-y-[-16px]');
+            setTimeout(() => { toast.classList.add('opacity-0', 'pointer-events-none'); toast.classList.remove('translate-y-[-16px]'); }, 2500);
+        }
+
+        function escapeHtml(str) {
+            return !str ? '' : str.replace(/[&<>"']/g, function(m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]; });
+        }
+    </script>
+</body>
+</html>
